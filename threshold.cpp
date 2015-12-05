@@ -18,10 +18,10 @@
 
 using namespace cv;
 
-std::vector<std::tuple<int,int,int> > get_image(int &width, int &height) {
+std::vector<std::tuple<int,int,int> > get_image(char *image_file, int &width, int &height) {
 	std::vector<std::tuple<int,int,int> >image;
 	Mat cv_img;
-	cv_img = imread("image.png", 1);
+	cv_img = imread(image_file, 1);
 	Mat cv_blur = cv_img.clone();
 	GaussianBlur(cv_img, cv_blur, Size(3,3), 0, 0);
 
@@ -230,15 +230,36 @@ Mat connected_components(Mat binarized) {
 			}
 		}
 	}
+
 	return output;
 }
 
-int main() {
+Mat mask_by_color(Mat componentized, uint16_t value) {
+	Mat output = componentized.clone();
+	for (int y = 0; y < output.rows; y++) {
+		for (int x = 0; x < output.cols; x++) {
+			uint16_t pix = componentized.at<uint16_t>(y, x);
+			if (pix == value) {
+				output.at<uint16_t>(y, x) = value;
+			}
+			else {
+				output.at<uint16_t>(y,x) = 65535;
+			}
+		}
+	}
+	return output;
+}
+
+int main(int argc, char **argv) {
+	if (argc != 2) {
+		std::cout << "Usage: ./threshold [image]" << std::endl;
+		return 1;
+	}
 	int width, height;
-	std::vector<std::tuple<int,int,int> > image = get_image(width, height);
+	std::vector<std::tuple<int,int,int> > image = get_image(argv[1], width, height);
 	std::vector<int> greyscale = convert_to_greyscale(image, width, height);
 	Mat output = threshold_image(greyscale, width, height);
-	imwrite("output.png", output);
+	imwrite(std::string(argv[1]) + std::string(".threshold.png"), output);
 	Mat component_output = connected_components(output);
-	imwrite("connected_output.png", component_output);
+	imwrite(std::string(argv[1]) + std::string(".connected_output.png"), component_output);
 }

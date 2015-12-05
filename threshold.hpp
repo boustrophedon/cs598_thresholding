@@ -32,5 +32,12 @@ Mat threshold_image(std::vector<int> greyscale, int width, int height);
 Mat connect_image(Mat binarized);
 
 
+// moment functions
+
+
+// misc functions
+
+Mat mask_by_color(Mat componentized, uint16_t value);
+
 
 #endif // THRESHOLD_HPP_
