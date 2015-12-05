@@ -14,6 +14,8 @@
 // N is just the maximum value a pixel can take
 #define N 255
 
+#define COMPONENT_SEPARATION_CONST 7001
+
 #define index_image(image, x, y) (image)[(y)*(width)+(x)]
 
 using namespace cv;
@@ -143,7 +145,7 @@ int automatic_threshold(std::vector<int> greyscale, int width, int height) {
 
 Mat threshold_image(std::vector<int> greyscale, int width, int height) {
 	int threshold = automatic_threshold(greyscale, width, height);
-	std::cout << "Threshold value: " << threshold << std::endl;
+	std::cout << "Threshold value from Otsu: " << threshold << std::endl;
 
 	// because reflections and lighting and stuff
 	int threshold_extra_constant = 30;
@@ -162,7 +164,7 @@ Mat threshold_image(std::vector<int> greyscale, int width, int height) {
 	return output;
 }
 
-Mat connected_components(Mat binarized) {
+Mat connected_components(Mat binarized, std::vector<uint16_t> &components) {
 	Mat output = Mat(binarized.rows, binarized.cols, CV_16U, Scalar(0));
 	std::unordered_map<uint16_t, uint16_t> component_ids;
 	uint16_t top_id = 1;
@@ -222,13 +224,17 @@ Mat connected_components(Mat binarized) {
 			}
 			if (new_ids.count(fill_id) == 0) {
 				new_ids[fill_id] = new_top;
-				output.at<uint16_t>(y, x) = 7001*new_top;
+				output.at<uint16_t>(y, x) = COMPONENT_SEPARATION_CONST*new_top;
 				new_top+=1;
 			}
 			else {
-				output.at<uint16_t>(y, x) = 7001*new_ids[fill_id];
+				output.at<uint16_t>(y, x) = COMPONENT_SEPARATION_CONST*new_ids[fill_id];
 			}
 		}
+	}
+
+	for (auto kv: new_ids) {
+		components.push_back(kv.second);
 	}
 
 	return output;
@@ -243,7 +249,7 @@ Mat mask_by_color(Mat componentized, uint16_t value) {
 				output.at<uint16_t>(y, x) = value;
 			}
 			else {
-				output.at<uint16_t>(y,x) = 65535;
+				output.at<uint16_t>(y,x) = 0;
 			}
 		}
 	}
@@ -255,11 +261,42 @@ int main(int argc, char **argv) {
 		std::cout << "Usage: ./threshold [image]" << std::endl;
 		return 1;
 	}
+	std::cout << argv[1] << std::endl;
 	int width, height;
 	std::vector<std::tuple<int,int,int> > image = get_image(argv[1], width, height);
 	std::vector<int> greyscale = convert_to_greyscale(image, width, height);
+
 	Mat output = threshold_image(greyscale, width, height);
 	imwrite(std::string(argv[1]) + std::string(".threshold.png"), output);
-	Mat component_output = connected_components(output);
+
+	std::vector<uint16_t> components;
+	Mat component_output = connected_components(output, components);
 	imwrite(std::string(argv[1]) + std::string(".connected_output.png"), component_output);
+
+
+	Mat orientation = imread(argv[1], 1);
+	for (uint16_t c: components) {
+		Moments m = moments(mask_by_color(component_output, 7001*c), true);
+
+		if (m.m00 < 1000) {
+			continue;
+		}
+		int thickness = -1;
+		int lineType = 8;
+
+		double c_x = m.m10/m.m00;
+		double c_y = m.m01/m.m00;
+
+		circle( orientation,
+			 Point(c_x, c_y),
+			 10,
+			 Scalar( 0, 0, 255 ),
+			 thickness,
+			 lineType );
+
+		double axis = m.mu11/(m.mu20 - m.mu02);
+		std::cout << "centroid: " << c_x << ", " << c_y << std::endl;
+		std::cout << "axis of orientation: " << axis << std::endl;		
+	}
+	imwrite(std::string(argv[1]) + std::string(".orientation_output.png"), orientation);
 }
