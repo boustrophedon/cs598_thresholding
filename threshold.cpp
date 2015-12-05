@@ -1,9 +1,13 @@
 #include <iostream>
 #include <vector>
 #include <tuple>
+#include <unordered_map>
+
+#include <inttypes.h>
 
 #include <opencv2/core/core.hpp>
-#include <opencv2/highgui/highgui.hpp> 
+#include <opencv2/highgui/highgui.hpp>
+#include <opencv2/imgproc/imgproc.hpp>
 
 #include "threshold.hpp"
 
@@ -18,12 +22,15 @@ std::vector<std::tuple<int,int,int> > get_image(int &width, int &height) {
 	std::vector<std::tuple<int,int,int> >image;
 	Mat cv_img;
 	cv_img = imread("image.png", 1);
+	Mat cv_blur = cv_img.clone();
+	GaussianBlur(cv_img, cv_blur, Size(3,3), 0, 0);
+
 	width = cv_img.cols;
 	height = cv_img.rows;
 
 	for (int y = 0; y < height; y++) {
 		for (int x = 0; x < width; x++) {
-			Vec3b pix = cv_img.at<Vec3b>(y,x);
+			Vec3b pix = cv_blur.at<Vec3b>(y,x);
 			// pix is BRG and we want RGB so 1 2 0
 			image.push_back(std::make_tuple(pix[1], pix[2], pix[0]));
 		}
@@ -134,17 +141,17 @@ int automatic_threshold(std::vector<int> greyscale, int width, int height) {
 	return max_threshold;
 }
 
-int main() {
-	int width, height;
-	std::vector<std::tuple<int,int,int> > image = get_image(width, height);
-	std::vector<int> greyscale = convert_to_greyscale(image, width, height);
+Mat threshold_image(std::vector<int> greyscale, int width, int height) {
 	int threshold = automatic_threshold(greyscale, width, height);
 	std::cout << "Threshold value: " << threshold << std::endl;
+
+	// because reflections and lighting and stuff
+	int threshold_extra_constant = 30;
 
 	Mat output(height, width, CV_8U);
 	for (int y = 0; y < height; y++) {
 		for (int x = 0; x < width; x++) {
-			if (index_image(greyscale, x, y) <= threshold) {
+			if (index_image(greyscale, x, y) <= threshold+threshold_extra_constant) {
 				output.at<uchar>(y, x) = 255;
 			}
 			else {
@@ -152,5 +159,86 @@ int main() {
 			}
 		}
 	}
+	return output;
+}
+
+Mat connected_components(Mat binarized) {
+	Mat output = Mat(binarized.rows, binarized.cols, CV_16U, Scalar(0));
+	std::unordered_map<uint16_t, uint16_t> component_ids;
+	uint16_t top_id = 1;
+
+	for (int y = 0; y < output.rows; y++) {
+		for (int x = 0; x < output.cols; x++) {
+			if (binarized.at<uchar>(y,x) != 0) {
+				continue;
+			}
+			int smallest_id = top_id;
+			if (x-1 >= 0) {
+				uint16_t above_id = output.at<uint16_t>(y,x-1);
+				if ((binarized.at<uchar>(y, x-1) == 0) && (above_id < smallest_id)) {
+					smallest_id = component_ids[above_id];
+				}
+			}
+			if (y-1 >= 0) {
+				uint16_t above_id = output.at<uint16_t>(y-1,x);
+				if ((binarized.at<uchar>(y-1, x) == 0) && (above_id < smallest_id)) {
+					smallest_id = component_ids[above_id];
+				}
+			}
+
+			output.at<uint16_t>(y,x) = smallest_id;
+			if (smallest_id == top_id) {
+				component_ids[smallest_id] = smallest_id;
+				top_id+=1;
+			}
+
+			if (x-1 >= 0) {
+				uint16_t above_id = output.at<uint16_t>(y,x-1);
+				if (smallest_id < above_id) {
+					component_ids[above_id] = smallest_id;
+				}
+			}
+			if (y-1 >= 0) {
+				uint16_t above_id = output.at<uint16_t>(y-1,x);
+				if (smallest_id < above_id) {
+					component_ids[above_id] = smallest_id;
+				}
+			}
+		}
+	}
+
+	std::unordered_map<uint16_t, uint16_t> new_ids;
+	uint16_t new_top = 1;
+	for (int y = 0; y < output.rows; y++) {
+		for (int x = 0; x < output.cols; x++) {
+			uint16_t id = output.at<uint16_t>(y,x);
+			if (id == 0) {
+				output.at<uint16_t>(y,x) = 65535;
+			   	continue;
+			}
+			uint16_t fill_id = component_ids[id];
+			while (component_ids[fill_id] != fill_id) {
+				fill_id = component_ids[fill_id];
+			}
+			if (new_ids.count(fill_id) == 0) {
+				new_ids[fill_id] = new_top;
+				output.at<uint16_t>(y, x) = 7001*new_top;
+				new_top+=1;
+			}
+			else {
+				output.at<uint16_t>(y, x) = 7001*new_ids[fill_id];
+			}
+		}
+	}
+	return output;
+}
+
+int main() {
+	int width, height;
+	std::vector<std::tuple<int,int,int> > image = get_image(width, height);
+	std::vector<int> greyscale = convert_to_greyscale(image, width, height);
+	Mat output = threshold_image(greyscale, width, height);
 	imwrite("output.png", output);
+	Mat component_output = connected_components(output);
+	imwrite("connected_output.png", component_output);
 }
