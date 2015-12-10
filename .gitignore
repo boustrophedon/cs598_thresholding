@@ -1,2 +1,5 @@
 threshold
 threshold.o
+*png
+*txt
+*tar
