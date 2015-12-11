@@ -1,5 +1,5 @@
 CC=g++
-CFLAGS=-Wall -Werror -std=c++11
+CFLAGS=-Wall -Werror -std=c++11 -O3
 LDFLAGS=-lopencv_core -lopencv_highgui -lopencv_imgproc
 
 all: threshold

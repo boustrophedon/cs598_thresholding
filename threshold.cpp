@@ -34,7 +34,30 @@ Mat convert_to_greyscale(Mat image) {
 	Mat greyscale;
 	cvtColor(image, greyscale, CV_BGR2GRAY);
 
-	uchar min_val = 255;
+	// Sobel example from http://docs.opencv.org/2.4/doc/tutorials/imgproc/imgtrans/sobel_derivatives/sobel_derivatives.html
+	int scale = 1;
+	int delta = 0;
+	int ddepth = CV_16S;
+
+	Mat grad;
+	Mat grad_x, grad_y;
+	Mat abs_grad_x, abs_grad_y;
+
+	// Gradient X
+	Sobel( greyscale, grad_x, ddepth, 1, 0, CV_SCHARR, scale, delta, BORDER_DEFAULT );
+	convertScaleAbs( grad_x, abs_grad_x );
+
+	// Gradient Y
+	Sobel( greyscale, grad_y, ddepth, 0, 1, CV_SCHARR, scale, delta, BORDER_DEFAULT );
+	convertScaleAbs( grad_y, abs_grad_y );
+
+	// Total Gradient (approximate)
+	addWeighted( abs_grad_x, 0.5, abs_grad_y, 0.5, 0, grad );
+	imwrite("sobel.png", grad);	
+
+	// The following part is required because otherwise P[0] becomes 0
+	// and we get division by zero errors when computing the between-group variance.
+	uchar min_val = UCHAR_MAX;
 	for (int y = 0; y < greyscale.rows; y++) {
 		for (int x = 0; x < greyscale.cols; x++) {
 			uchar v = greyscale.at<uchar>(y,x);
@@ -44,15 +67,16 @@ Mat convert_to_greyscale(Mat image) {
 		}
 	}
 
-	// The following part is required because otherwise P[0] becomes 0
-	// and we get division by zero errors when computing the between-group variance.
 	for (int y = 0; y < greyscale.rows; y++) {
 		for (int x = 0; x < greyscale.cols; x++) {
 			greyscale.at<uchar>(y,x) -= min_val;
 		}
 	}
 
-	return greyscale;
+
+	Mat sub = greyscale-grad;
+	imwrite("sub.png", sub);
+	return sub;
 }
 
 std::vector<int> create_histogram(Mat greyscale) {
@@ -137,7 +161,7 @@ Mat threshold_image(Mat greyscale, int width, int height) {
 	std::cout << "Threshold value from Otsu: " << threshold << std::endl;
 
 	// because reflections and lighting and stuff
-	int threshold_extra_constant = 30;
+	int threshold_extra_constant = 25;
 
 	Mat output(height, width, CV_8U);
 	for (int y = 0; y < height; y++) {
