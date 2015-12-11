@@ -37,7 +37,8 @@ Mat connect_image(Mat binarized);
 
 // misc functions
 
-Mat mask_by_color(Mat componentized, uint16_t value);
+Mat mask_by_component(Mat componentized, uint16_t value);
 
+Scalar component_avg_color(Mat original, Mat component);
 
 #endif // THRESHOLD_HPP_

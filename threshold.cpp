@@ -11,10 +11,9 @@
 
 #include "threshold.hpp"
 
-
 #define COMPONENT_SEPARATION_CONST 7001
 
-#define index_image(image, x, y) (image)[(y)*(width)+(x)]
+#define SQ(x) (x)*(x)
 
 using namespace cv;
 
@@ -253,20 +252,24 @@ Mat connected_components(Mat binarized, std::vector<uint16_t> &components) {
 	return output;
 }
 
-Mat mask_by_color(Mat componentized, uint16_t value) {
-	Mat output = componentized.clone();
+Mat mask_by_component(Mat componentized, uint16_t value) {
+	Mat output(componentized.size(), CV_8U);
 	for (int y = 0; y < output.rows; y++) {
 		for (int x = 0; x < output.cols; x++) {
 			uint16_t pix = componentized.at<uint16_t>(y, x);
 			if (pix == value) {
-				output.at<uint16_t>(y, x) = value;
+				output.at<uchar>(y, x) = UCHAR_MAX;
 			}
 			else {
-				output.at<uint16_t>(y,x) = 0;
+				output.at<uchar>(y,x) = 0;
 			}
 		}
 	}
 	return output;
+}
+
+Scalar component_avg_color(Mat original, Mat component) {
+	return mean(original, component);
 }
 
 int main(int argc, char **argv) {
@@ -286,30 +289,72 @@ int main(int argc, char **argv) {
 	Mat component_output = connected_components(output, components);
 	imwrite(std::string(argv[1]) + std::string(".connected_output.png"), component_output);
 
+	Mat hsv_image(image.size(), image.type());
+	cvtColor(image, hsv_image, CV_BGR2HSV);
 
-	Mat orientation = imread(argv[1], 1);
+	Mat orientation = image.clone();
+
+	int i = 0;
 	for (uint16_t c: components) {
-		Moments m = moments(mask_by_color(component_output, 7001*c), true);
+		Mat masked = mask_by_component(component_output, COMPONENT_SEPARATION_CONST*c);
+		Moments m = moments(masked, true);
 
 		if (m.m00 < 1000) {
 			continue;
 		}
+		i++;
+		std::cout << "Component ID: " << i << std::endl;
+
+		Scalar avg_color = component_avg_color(hsv_image, masked);
+		std::cout << "Component HSV color: " << avg_color << std::endl;
+
 		int thickness = -1;
 		int lineType = 8;
 
 		double c_x = m.m10/m.m00;
 		double c_y = m.m01/m.m00;
 
-		circle( orientation,
-			 Point(c_x, c_y),
-			 10,
-			 Scalar( 0, 0, 255 ),
-			 thickness,
-			 lineType );
+		double axis = atan((2*m.mu11)/(m.mu20 - m.mu02))/2.0;
 
-		double axis = m.mu11/(m.mu20 - m.mu02);
+		// see http://www.via.cornell.edu/ece547/text/survey.pdf
+		if (m.mu20 - m.mu02 <= 0) {
+			axis+= M_PI/2.0;
+		}
+
+		circle( orientation,
+			Point(c_x, c_y),
+			10,
+			Scalar(0, 0, 0),
+			thickness,
+			lineType );
+
+		int axisLength = m.m00/300;
+
+		line( orientation,
+			Point(c_x, c_y),
+			Point(c_x+axisLength*cos(axis), c_y+axisLength*sin(axis)),
+			Scalar(0, 0, 0),
+			10,
+			lineType);
+
+		int fontFace = FONT_HERSHEY_SCRIPT_SIMPLEX;
+		double fontScale = 1;
+		int textThickness = 3;
+		char text[3];
+		sprintf(text, "%d", i);
+		putText(orientation, text, Point(c_x, c_y-20), fontFace, fontScale,
+						Scalar::all(0), textThickness, 8);
+
+
+		// I'm not sure if these calculations are correct
+		double l_1 = m.mu20 - m.mu02 + sqrt(4*SQ(m.mu11) + SQ(m.mu20 - m.mu02));
+		double l_2 = m.mu20 - m.mu02 - sqrt(4*SQ(m.mu11) + SQ(m.mu20 - m.mu02));
+		double eccentricity = sqrt(1- l_2/l_1);
+
 		std::cout << "centroid: " << c_x << ", " << c_y << std::endl;
-		std::cout << "axis of orientation: " << axis << std::endl;		
+		std::cout << "axis of orientation: " << axis << std::endl;
+		std::cout << "eccentricity: " << eccentricity << std::endl;
+		std::cout << std::endl;
 	}
 	imwrite(std::string(argv[1]) + std::string(".orientation_output.png"), orientation);
 }
